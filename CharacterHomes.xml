@@ -4,7 +4,7 @@
 
     <TopLevelControl name="CharacterHomesDialog" hidden="true" movable="true" mouseEnabled="true" clampedToScreen="true" allowBringToTop="true">
       <Anchor point="CENTER" relativePoint="CENTER" relativeTo="GuiRoot"/>
-      <Dimensions x="1180" y="600"/>
+      <Dimensions x="1180" y="720"/>
       <Controls>
 
         <Backdrop name="$(parent)Bg" centerColor="0A0A0A" edgeColor="6B5C2E">
@@ -44,6 +44,15 @@
 
         <Label name="$(parent)SearchLabel" font="ZoFontGame" color="888888" text="Search:">
           <Anchor point="RIGHT" relativePoint="LEFT" relativeTo="$(parent)SearchFilterBg" offsetX="-4" offsetY="0"/>
+        </Label>
+
+        <Control name="$(parent)OwnerFilterCombo" inherits="ZO_ComboBox">
+          <Anchor point="TOPRIGHT" relativePoint="TOPRIGHT" relativeTo="$(parent)" offsetX="-16" offsetY="53"/>
+          <Dimensions x="200" y="28"/>
+        </Control>
+
+        <Label name="$(parent)OwnerFilterLabel" font="ZoFontGame" color="888888" text="Owner:">
+          <Anchor point="RIGHT" relativePoint="LEFT" relativeTo="$(parent)OwnerFilterCombo" offsetX="-4" offsetY="0"/>
         </Label>
 
         <Backdrop name="$(parent)Divider2" centerColor="00000000" edgeColor="6B5C2E">

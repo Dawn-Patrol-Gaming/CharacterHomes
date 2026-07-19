@@ -282,10 +282,11 @@ local scrollChild   -- the scroll child control from XML
 local contentWrap   -- single CT_CONTROL parenting all dynamic rows
 local trashBin      -- hidden off-screen container; we reparent old contentWraps here
                     -- instead of calling Destroy() which is unreliable in ESO
-local bgSeq           = 0
-local comboSeq        = 0
-local populating      = false
-local CH_DEBUG        = false
+local bgSeq              = 0
+local comboSeq           = 0
+local populating         = false
+local CH_DEBUG           = false
+local accountOwnerFilter = 0  -- 0=all, 1=mine (no owner), 2=friends (has owner)
 
 local function addTooltip(ctrl, text)
     ctrl:SetHandler("OnMouseEnter", function(self)
@@ -346,6 +347,13 @@ local function getSearchFilter()
     local eb = CharacterHomesDialogSearchFilterBgEdit
     if not eb then return "" end
     return string.lower(zo_strtrim(eb:GetText() or ""))
+end
+
+local function accountOwnerMatchesFilter(entry)
+    if accountOwnerFilter == 0 then return true end
+    local isOwned = (entry.owner == nil or entry.owner == "")
+    if accountOwnerFilter == 1 then return isOwned end
+    return not isOwned  -- filter 2: friends
 end
 
 local function entryMatchesFilters(_, entry)
@@ -651,7 +659,7 @@ populateDialog = function()
 
     local shownAcc = 0
     for n, e in pairs(CH.sv.account) do
-        if entryMatchesFilters(n, e) then
+        if entryMatchesFilters(n, e) and accountOwnerMatchesFilter(e) then
             local name, entry = n, e
             yOff = addRow("Account", name, entry, yOff, function()
                 CH.sv.account[name] = nil
@@ -957,7 +965,7 @@ local function buildAddonLinks()
     local dlg = CharacterHomesDialog
     -- search bar row: y=53, h=28, centre at y=67
     local ROW_Y   = 67
-    local RIGHT_X = -12   -- offset from TOPRIGHT; each link shifts further left
+    local RIGHT_X = -224  -- start left of the owner filter combo (200px wide, 16px inset, 8px gap)
 
     local function tryLink(labelText, cmdCandidates, cmdArgs)
         local cmdKey = nil
@@ -1005,8 +1013,9 @@ local function onAddonLoaded(_, name)
     end
 
     CH.sv = ZO_SavedVars:NewAccountWide("CharacterHomesSavedVars", 3, nil, {
-        account    = {},
-        characters = {},
+        account     = {},
+        characters  = {},
+        ownerFilter = 0,
     }, server)
 
     -- ensure top-level keys exist (guards against stale saves from version 1)
@@ -1047,6 +1056,19 @@ local function onAddonLoaded(_, name)
             charEntries.named = migrateTable(charEntries.named)
         end
     end
+
+    -- owner filter combo (structure defined in XML)
+    local ownerCb = ZO_ComboBox_ObjectFromContainer(CharacterHomesDialogOwnerFilterCombo)
+    for i, opt in ipairs({ "All account homes", "My homes", "Friends' homes" }) do
+        local v = i - 1
+        ownerCb:AddItem(ownerCb:CreateItemEntry(opt, function()
+            accountOwnerFilter = v
+            CH.sv.ownerFilter  = v
+            zo_callLater(populateDialog, 0)
+        end))
+    end
+    accountOwnerFilter = CH.sv.ownerFilter or 0
+    ownerCb:SelectItemByIndex(accountOwnerFilter + 1)
 
     buildFriendHousingBar()
     buildAddBar()
