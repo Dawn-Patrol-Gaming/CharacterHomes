@@ -1172,9 +1172,16 @@ local function onAddonLoaded(_, name)
     SLASH_COMMANDS["/resethome"] = function()  CH.SlashResetHome()  end
     SLASH_COMMANDS["/delhome"]   = function(a) CH.SlashDelHome(a)   end
     SLASH_COMMANDS["/delmyhome"] = function(a) CH.SlashDelMyHome(a) end
-    -- /home conflicts with EHT; use /gohome
     SLASH_COMMANDS["/gohome"]    = function(a) CH.SlashHome(a)      end
     SLASH_COMMANDS["/homes"]     = function()  CH.SlashHomes()      end
+
+    -- /home belongs to EHT when it's enabled; claim it only if nothing else has once all addons are loaded
+    EVENT_MANAGER:RegisterForEvent("CharacterHomes_HomeCmd", EVENT_PLAYER_ACTIVATED, function()
+        EVENT_MANAGER:UnregisterForEvent("CharacterHomes_HomeCmd", EVENT_PLAYER_ACTIVATED)
+        if not SLASH_COMMANDS["/home"] then
+            SLASH_COMMANDS["/home"] = function(a) CH.SlashHome(a) end
+        end
+    end)
 
     -- Migrate entries: re-key to official house name, fix zone (re-compute for all entries
     -- so any previously wrong zone values get corrected with the GetParentZoneId fix).
