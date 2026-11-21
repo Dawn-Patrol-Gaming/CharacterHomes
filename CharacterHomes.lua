@@ -5,8 +5,6 @@ local WAYSHRINE_ICON    = "/esoui/art/icons/mapkey/mapkey_wayshrine.dds"
 local WAYSHRINE_ICON_MO = "/esoui/art/icons/mapkey/mapkey_wayshrine.dds"
 local HOME_ICON         = "/esoui/art/collections/collections_tabicon_housing_up.dds"
 local HOME_ICON_MO      = "/esoui/art/collections/collections_tabicon_housing_over.dds"
-local CLOSE_ICON     = "/esoui/art/buttons/decline_up.dds"
-local CLOSE_ICON_MO  = "/esoui/art/buttons/decline_over.dds"
 local EDIT_ICON      = "/esoui/art/buttons/edit_up.dds"
 local EDIT_ICON_MO   = "/esoui/art/buttons/edit_over.dds"
 local SAVE_ICON      = "/esoui/art/buttons/accept_up.dds"
@@ -24,6 +22,8 @@ local ROW_H          = 44
 local populateDialog
 local refreshIfOpen
 local getOwnedHouses
+
+local CH_DEBUG = false
 
 -- Helpers
 
@@ -146,17 +146,6 @@ local function jumpToExterior(entry)
         JumpToSpecificHouse(entry.owner, entry.houseId)
     else
         RequestJumpToHouse(entry.houseId, true)
-    end
-end
-
-local function resolveNamed(name)
-    local lname = string.lower(name)
-    local cd = charData()
-    for k, v in pairs(cd.named) do
-        if string.lower(k) == lname or string.lower(v.displayName or "") == lname then return v end
-    end
-    for k, v in pairs(CH.sv.account) do
-        if string.lower(k) == lname or string.lower(v.displayName or "") == lname then return v end
     end
 end
 
@@ -349,14 +338,8 @@ end
 
 -- UI
 
-local scrollChild   -- the scroll child control from XML
-local contentWrap   -- single CT_CONTROL parenting all dynamic rows
-local trashBin      -- hidden off-screen container; we reparent old contentWraps here
-                    -- instead of calling Destroy() which is unreliable in ESO
-local bgSeq              = 0
-local comboSeq           = 0
+local rowPool, headerPool, notePool  -- list controls are created once and reused (see populateDialog)
 local populating         = false
-local CH_DEBUG           = false
 local accountOwnerFilter = 0  -- 0=all, 1=mine (no owner), 2=friends (has owner)
 
 local function addTooltip(ctrl, text)
@@ -407,13 +390,6 @@ local function getAllHouses()
     return allHouseCache
 end
 
-local function getScrollChild()
-    if not scrollChild then
-        scrollChild = CharacterHomesDialogScrollPanelScrollChild
-    end
-    return scrollChild
-end
-
 local function getSearchFilter()
     local eb = CharacterHomesDialogSearchFilterBgEdit
     if not eb then return "" end
@@ -440,7 +416,7 @@ end
 
 function CH.OnFilterChanged()
     if not CH.sv then return end
-    if not scrollChild then return end
+    if not rowPool then return end
     if CharacterHomesDialog:IsHidden() then return end
     zo_callLater(populateDialog, 0)
 end
@@ -450,76 +426,60 @@ local function getRowWidth()
     return (panel and panel:GetWidth() > 0 and panel:GetWidth() or 700) - 18
 end
 
-local function getTrashBin()
-    if not trashBin then
-        trashBin = WINDOW_MANAGER:CreateControl("CHTrashBin", GuiRoot, CT_CONTROL)
-        trashBin:SetHidden(true)
-        trashBin:SetDimensions(1, 1)
-        trashBin:SetAnchor(TOPLEFT, GuiRoot, TOPLEFT, -200, -200)
-    end
-    return trashBin
-end
-
-local function clearRows()
-    if contentWrap then
-        contentWrap:SetParent(getTrashBin())  -- reparent away; Destroy is unreliable in ESO
-        contentWrap = nil
-    end
-end
-
 local function getContent()
-    if not contentWrap then
-        local sc = getScrollChild()
-        contentWrap = WINDOW_MANAGER:CreateControl(nil, sc, CT_CONTROL)
-        contentWrap:SetAnchor(TOPLEFT, sc, TOPLEFT, 0, 0)
-        contentWrap:SetDimensions(getRowWidth(), 10)
-    end
-    return contentWrap
+    return CharacterHomesDialogScrollPanelScrollChildContent
 end
 
--- Column offsets
-local COL_TELE      = 0    -- teleport icon  (44px)
-local COL_TYPE      = 44   -- owner @name    (176px; blank for own homes)
-local COL_ALIAS     = 220  -- display label  (fills to house column)
-local HOUSE_COL_W   = 320  -- house column fixed width
-local COL_DEL       = -28  -- delete btn     (right edge offset, 24px wide)
--- COL_HOUSE is computed per-row as: rowW - 60 - HOUSE_COL_W
+-- Controls are never destroyed (Destroy is unreliable in ESO); released ones are hidden and reused.
+local function newPool(template, initOnce)
+    local count = 0
+    local function factory()
+        count = count + 1
+        local ctrl = CreateControlFromVirtual(template, getContent(), template, count)
+        if initOnce then initOnce(ctrl) end
+        return ctrl
+    end
+    local function reset(ctrl)
+        ctrl:SetHidden(true)
+        ctrl:ClearAnchors()
+    end
+    return ZO_ObjectPool:New(factory, reset)
+end
+
+local function acquire(pool, offsetX, yOff, fullWidth)
+    local ctrl = pool:AcquireObject()
+    local c    = getContent()
+    ctrl:SetAnchor(TOPLEFT, c, TOPLEFT, offsetX, yOff)
+    if fullWidth then ctrl:SetAnchor(TOPRIGHT, c, TOPRIGHT, 0, yOff) end
+    ctrl:SetHidden(false)
+    return ctrl
+end
+
+-- Wiring that doesn't depend on the entry; runs once when the pool creates a row.
+local function initRow(row)
+    local bg = row:GetNamedChild("Bg")
+    row:SetHandler("OnMouseEnter", function() bg:SetCenterColor(1, 1, 1, 0.06) end)
+    row:SetHandler("OnMouseExit",  function() bg:SetCenterColor(0, 0, 0, 0) end)
+    row:GetNamedChild("NameBg"):SetCenterColor(0, 0, 0, 0.7)
+    addTooltip(row:GetNamedChild("EditButton"), "Edit label or change house")
+    addTooltip(row:GetNamedChild("DeleteButton"), "Remove from list")
+end
 
 local function addHeader(text, yOff)
-    local c   = getContent()
-    local lbl = WINDOW_MANAGER:CreateControl(nil, c, CT_LABEL)
-    lbl:SetFont("ZoFontWinH3")
-    lbl:SetText(text)
-    lbl:SetColor(0.78, 0.68, 0.38, 1)
-    lbl:SetAnchor(TOPLEFT, c, TOPLEFT, 2, yOff)
+    acquire(headerPool, 2, yOff):SetText(text)
     return yOff + 30
 end
 
 local function addRow(typeLabel, aliasName, entry, yOff, onDelete)
-    local c        = getContent()
-    local rowW     = getRowWidth()
-    local colHouse = rowW - 60 - HOUSE_COL_W
-    local isOwned  = (entry.owner == nil or entry.owner == "")
-
-    local row = WINDOW_MANAGER:CreateControl(nil, c, CT_CONTROL)
-    row:SetDimensions(rowW, ROW_H)
-    row:SetAnchor(TOPLEFT, c, TOPLEFT, 0, yOff)
-    row:SetMouseEnabled(true)
-
-    bgSeq = bgSeq + 1
-    local bg = CreateControlFromVirtual("CHBg" .. bgSeq, row, "ZO_SliderBackdrop")
-    bg:SetAnchorFill(row)
-    bg:SetCenterColor(0, 0, 0, 0)
-    bg:SetEdgeColor(0, 0, 0, 0)
-    row:SetHandler("OnMouseEnter", function() bg:SetCenterColor(1, 1, 1, 0.06) end)
-    row:SetHandler("OnMouseExit",  function() bg:SetCenterColor(0, 0, 0, 0) end)
+    local isOwned = (entry.owner == nil or entry.owner == "")
+    local row     = acquire(rowPool, 0, yOff, true)
+    -- a row released while hovered never gets OnMouseExit, so clear its highlight
+    row:GetNamedChild("Bg"):SetCenterColor(0, 0, 0, 0)
 
     local isPrimary = (typeLabel == "Primary")
     local teleIcon   = isPrimary and HOME_ICON    or WAYSHRINE_ICON
     local teleIconMO = isPrimary and HOME_ICON_MO or WAYSHRINE_ICON_MO
-    local ico = WINDOW_MANAGER:CreateControl(nil, row, CT_BUTTON)
-    ico:SetDimensions(34, 34)
-    ico:SetAnchor(LEFT, row, LEFT, COL_TELE + 3, 0)
+    local ico = row:GetNamedChild("Teleport")
     ico:SetNormalTexture(teleIcon)
     ico:SetPressedTexture(teleIcon)
     ico:SetMouseOverTexture(teleIconMO)
@@ -540,38 +500,22 @@ local function addRow(typeLabel, aliasName, entry, yOff, onDelete)
             ShowMenu(self)
         end
     end)
+    local officialName = getHouseName(entry.houseId) or ("House #" .. tostring(entry.houseId or 0))
     local teleLabel = isOwned and ("Teleport to " .. (entry.displayName or officialName) .. "\n|c666666Right-click for outside|r")
                                or ("Teleport to " .. (entry.displayName or officialName) .. "\n|c888888via " .. entry.owner .. "|r")
     addTooltip(ico, teleLabel)
 
     -- col2: owner @name for friend homes; blank for own homes
-    local typeLbl = WINDOW_MANAGER:CreateControl(nil, row, CT_LABEL)
-    typeLbl:SetFont("ZoFontGame")
-    local ownerText = (entry.owner and entry.owner ~= "") and ("|c7a9cbf" .. entry.owner .. "|r") or ""
-    typeLbl:SetText(ownerText)
-    typeLbl:SetAnchor(LEFT, row, LEFT, COL_TYPE, 0)
-    typeLbl:SetDimensions(COL_ALIAS - COL_TYPE - 4, ROW_H)
-    typeLbl:SetVerticalAlignment(TEXT_ALIGN_CENTER)
+    row:GetNamedChild("Owner"):SetText(entry.owner or "")
 
     -- col3: user's arbitrary display label (editable)
-    local aliasLbl = WINDOW_MANAGER:CreateControl(nil, row, CT_LABEL)
-    aliasLbl:SetFont("ZoFontWinH4")
-    local displayText = entry.displayName or ""
-    aliasLbl:SetText(displayText ~= "" and ("|cffffff" .. displayText .. "|r") or "")
-    aliasLbl:SetAnchor(LEFT, row, LEFT, COL_ALIAS, 0)
-    aliasLbl:SetDimensions(colHouse - COL_ALIAS - 4, ROW_H)
-    aliasLbl:SetVerticalAlignment(TEXT_ALIGN_CENTER)
+    local aliasLbl = row:GetNamedChild("Alias")
+    aliasLbl:SetText(entry.displayName or "")
 
     -- col4: official ESO house name derived from houseId (not editable as text; changed via combo)
-    local officialName = getHouseName(entry.houseId) or ("House #" .. tostring(entry.houseId or 0))
-    local houseLbl = WINDOW_MANAGER:CreateControl(nil, row, CT_LABEL)
-    houseLbl:SetFont("ZoFontGame")
+    local houseLbl = row:GetNamedChild("House")
     houseLbl:SetText(officialName)
-    houseLbl:SetColor(0.75, 0.75, 0.75, 1)
-    houseLbl:SetAnchor(LEFT, row, LEFT, colHouse, 0)
-    houseLbl:SetDimensions(HOUSE_COL_W, ROW_H)
-    houseLbl:SetVerticalAlignment(TEXT_ALIGN_CENTER)
-    houseLbl:SetMouseEnabled(true)
+    houseLbl:SetColor(0.75, 0.75, 0.75, 1)  -- may still be white from hover on a previous use
     houseLbl:SetHandler("OnMouseUp", function(_, button, upInside)
         if button == MOUSE_BUTTON_INDEX_LEFT and upInside then CH.ShowHouseOnMap(entry.houseId) end
     end)
@@ -587,45 +531,13 @@ local function addRow(typeLabel, aliasName, entry, yOff, onDelete)
     end)
 
     -- inline edit controls (hidden until edit mode)
-
-    -- col3: display name editbox (replaces alias label in edit mode)
-    local dnBgW = colHouse - COL_ALIAS - 8
-    local dnBg  = WINDOW_MANAGER:CreateControl(nil, row, CT_BACKDROP)
-    dnBg:SetCenterColor(0, 0, 0, 0.7)
-    dnBg:SetAnchor(LEFT, row, LEFT, COL_ALIAS, 0)
-    dnBg:SetDimensions(dnBgW, ROW_H - 8)
-    dnBg:SetHidden(true)
-
-    local dnEdit = WINDOW_MANAGER:CreateControl(nil, dnBg, CT_EDITBOX)
-    dnEdit:SetFont("ZoFontGame")
-    dnEdit:SetColor(1, 1, 1, 1)
-    dnEdit:SetMaxInputChars(64)
-    dnEdit:SetAnchor(TOPLEFT, dnBg, TOPLEFT, 4, 4)
-    dnEdit:SetDimensions(dnBgW - 8, ROW_H - 16)
-
-    -- col4: owned-house dropdown (replaces house label in edit mode, owned homes only)
-    comboSeq = comboSeq + 1
-    local houseComboCtrl = WINDOW_MANAGER:CreateControlFromVirtual("CHHouseCombo" .. comboSeq, row, "ZO_ComboBox")
-    houseComboCtrl:SetAnchor(LEFT, row, LEFT, colHouse, 0)
-    houseComboCtrl:SetDimensions(HOUSE_COL_W, ROW_H - 4)
-    houseComboCtrl:SetHidden(true)
-    local houseCombo    = ZO_ComboBox_ObjectFromContainer(houseComboCtrl)
+    local dnBg            = row:GetNamedChild("NameBg")      -- label editbox, replaces Alias
+    local dnEdit          = row:GetNamedChild("NameBgBox")
+    local houseComboCtrl  = row:GetNamedChild("HouseCombo")  -- owned-house dropdown, replaces House
+    local houseCombo      = ZO_ComboBox_ObjectFromContainer(houseComboCtrl)
     local selectedHouseId = entry.houseId
-
-    local editBtn = WINDOW_MANAGER:CreateControl(nil, row, CT_BUTTON)
-    editBtn:SetDimensions(24, 24)
-    editBtn:SetAnchor(RIGHT, row, RIGHT, -32, 0)
-    editBtn:SetNormalTexture(EDIT_ICON)
-    editBtn:SetMouseOverTexture(EDIT_ICON_MO)
-    addTooltip(editBtn, "Edit label or change house")
-
-    local del = WINDOW_MANAGER:CreateControl(nil, row, CT_BUTTON)
-    del:SetDimensions(24, 24)
-    del:SetAnchor(RIGHT, row, RIGHT, COL_DEL + 24, 0)
-    del:SetNormalTexture(CLOSE_ICON)
-    del:SetMouseOverTexture(CLOSE_ICON_MO)
-    del:SetHandler("OnClicked", onDelete)
-    addTooltip(del, "Remove from list")
+    local editBtn         = row:GetNamedChild("EditButton")
+    local del             = row:GetNamedChild("DeleteButton")
 
     local exitEditMode  -- forward declare
 
@@ -658,6 +570,7 @@ local function addRow(typeLabel, aliasName, entry, yOff, onDelete)
     end
 
     exitEditMode = function(doSave)
+        dnEdit:LoseFocus()
         ico:SetHidden(false)
         aliasLbl:SetHidden(false)
         houseLbl:SetHidden(false)
@@ -694,22 +607,30 @@ local function addRow(typeLabel, aliasName, entry, yOff, onDelete)
         else exitEditMode(true) end
     end)
 
+    -- start in view mode; a reused row may have been left in edit mode
+    exitEditMode(false)
+
     return yOff + ROW_H + 2
 end
 
 local function addNote(text, yOff)
-    local c   = getContent()
-    local lbl = WINDOW_MANAGER:CreateControl(nil, c, CT_LABEL)
-    lbl:SetFont("ZoFontGame")
-    lbl:SetText("|c666666" .. text .. "|r")
-    lbl:SetAnchor(TOPLEFT, c, TOPLEFT, 6, yOff)
+    acquire(notePool, 6, yOff):SetText(text)
     return yOff + 24
 end
 
 populateDialog = function()
     if populating then return end
     populating = true
-    clearRows()
+    if not rowPool then
+        rowPool    = newPool("CharacterHomesRow", initRow)
+        headerPool = newPool("CharacterHomesHeader")
+        notePool   = newPool("CharacterHomesNote")
+    end
+    rowPool:ReleaseAllObjects()
+    headerPool:ReleaseAllObjects()
+    notePool:ReleaseAllObjects()
+    ClearTooltip(InformationTooltip)  -- a released control can't fire OnMouseExit to clear its own
+    getContent():SetWidth(getRowWidth())
 
     local yOff = 4
     local cd   = charData()
@@ -767,7 +688,7 @@ populateDialog = function()
     end
     if shownAcc == 0 then
         if next(CH.sv.account) == nil then
-            yOff = addNote("No account homes -- use /sethome <name> inside a house.", yOff)
+            yOff = addNote("No account homes -- use /setglobalhome <name> inside a house.", yOff)
         else
             yOff = addNote("No account homes match the filter.", yOff)
         end
@@ -1058,7 +979,7 @@ local function buildAddBar()
     zoneCb:SelectFirstItem()
 
     addTooltip(CharacterHomesDialogSetHomeButton, "Save selected house to your homes list")
-    addTooltip(CharacterHomesDialogClearButton,   "Teleport to the selected house")
+    addTooltip(CharacterHomesDialogClearButton,   "Teleport to the selected house\n|c666666Right-click for outside|r")
 
     -- Save (checkmark) button
     local addBtn = CharacterHomesDialogSetHomeButton
@@ -1087,8 +1008,7 @@ local function buildAddBar()
     end)
 
     -- Teleport button: ports to currently selected owned house
-    local teleBtn = CharacterHomesDialogClearButton
-    teleBtn:SetHandler("OnClicked", function()
+    local function teleport(exterior)
         if not selectedHouseInfo then
             msg("No owned homes found.")
             return
@@ -1097,9 +1017,22 @@ local function buildAddBar()
             msg("Cannot teleport from your current location.")
             return
         end
-        announce("Heading to |cffffff%s|r...", selectedHouseInfo.name)
+        announce("Heading %s |cffffff%s|r...", exterior and "outside" or "inside", selectedHouseInfo.name)
         CH.HideDialog()
-        RequestJumpToHouse(selectedHouseInfo.houseId)
+        RequestJumpToHouse(selectedHouseInfo.houseId, exterior)
+    end
+
+    local teleBtn = CharacterHomesDialogClearButton
+    teleBtn:SetHandler("OnMouseUp", function(self, button, upInside)
+        if not upInside then return end
+        if button == MOUSE_BUTTON_INDEX_LEFT then
+            teleport(false)
+        elseif button == MOUSE_BUTTON_INDEX_RIGHT then
+            ClearMenu()
+            AddMenuItem("Teleport Inside",  function() teleport(false) end)
+            AddMenuItem("Teleport Outside", function() teleport(true)  end)
+            ShowMenu(self)
+        end
     end)
 end
 
@@ -1140,6 +1073,7 @@ end
 
 local function onAddonLoaded(_, name)
     if name ~= "CharacterHomes" then return end
+    EVENT_MANAGER:UnregisterForEvent("CharacterHomes", EVENT_ADD_ON_LOADED)
 
     -- Migrate legacy "Default" profile to the server-specific profile so EU and
     -- NA megaserver characters don't share the same saved data bucket.
@@ -1162,18 +1096,28 @@ local function onAddonLoaded(_, name)
     -- lets the game close the window on Escape and manage the mouse cursor
     SCENE_MANAGER:RegisterTopLevel(CharacterHomesDialog, false)
 
-    -- ensure top-level keys exist (guards against stale saves from version 1)
-    if not CH.sv.account    then CH.sv.account    = {} end
-    if not CH.sv.characters then CH.sv.characters = {} end
+    -- ensure top-level keys exist (guards against stale saves from older versions)
+    if not CH.sv.account        then CH.sv.account     = {} end
+    if not CH.sv.characters     then CH.sv.characters  = {} end
+    if CH.sv.ownerFilter == nil then CH.sv.ownerFilter = 0 end
 
+    -- chat output is lost before EVENT_PLAYER_ACTIVATED, so conflicts are reported from that handler
+    local takenCmds = {}
+    local function reg(cmd, fn)
+        if SLASH_COMMANDS[cmd] then
+            table.insert(takenCmds, cmd)
+        else
+            SLASH_COMMANDS[cmd] = fn
+        end
+    end
     -- /sethome conflicts with EHT (which also registers /sethome); use /setglobalhome
-    SLASH_COMMANDS["/setglobalhome"] = function(a) CH.SlashSetHome(a)   end
-    SLASH_COMMANDS["/setmyhome"] = function(a) CH.SlashSetMyHome(a) end
-    SLASH_COMMANDS["/resethome"] = function()  CH.SlashResetHome()  end
-    SLASH_COMMANDS["/delhome"]   = function(a) CH.SlashDelHome(a)   end
-    SLASH_COMMANDS["/delmyhome"] = function(a) CH.SlashDelMyHome(a) end
-    SLASH_COMMANDS["/gohome"]    = function(a) CH.SlashHome(a)      end
-    SLASH_COMMANDS["/homes"]     = function()  CH.SlashHomes()      end
+    reg("/setglobalhome", function(a) CH.SlashSetHome(a)   end)
+    reg("/setmyhome",     function(a) CH.SlashSetMyHome(a) end)
+    reg("/resethome",     function()  CH.SlashResetHome()  end)
+    reg("/delhome",       function(a) CH.SlashDelHome(a)   end)
+    reg("/delmyhome",     function(a) CH.SlashDelMyHome(a) end)
+    reg("/gohome",        function(a) CH.SlashHome(a)      end)
+    reg("/homes",         function()  CH.SlashHomes()      end)
 
     -- /home belongs to EHT when it's enabled; claim it only if nothing else has once all addons are loaded
     EVENT_MANAGER:RegisterForEvent("CharacterHomes_HomeCmd", EVENT_PLAYER_ACTIVATED, function()
@@ -1181,31 +1125,37 @@ local function onAddonLoaded(_, name)
         if not SLASH_COMMANDS["/home"] then
             SLASH_COMMANDS["/home"] = function(a) CH.SlashHome(a) end
         end
+        if #takenCmds > 0 then
+            msg("Already used by another addon, not registered: %s", table.concat(takenCmds, " "))
+        end
     end)
 
-    -- Migrate entries: re-key to official house name, fix zone (re-compute for all entries
-    -- so any previously wrong zone values get corrected with the GetParentZoneId fix).
-    local function migrateTable(tbl)
-        local rekeyed = {}
-        for k, v in pairs(tbl) do
-            local houseName   = getHouseName(v.houseId) or k
-            local newKey      = makeEntryKey(v.houseId, v.owner)
-            v.zone = getHouseZone(v.houseId)
-            if not v.displayName or v.displayName == k then
-                v.displayName = houseName
+    -- One-time migration: re-key entries to the official house name and recompute zones
+    -- (fixes zones saved before the GetParentZoneId change).
+    if not CH.sv.migrated then
+        local function migrateTable(tbl)
+            local rekeyed = {}
+            for k, v in pairs(tbl) do
+                local houseName = getHouseName(v.houseId) or k
+                local newKey    = makeEntryKey(v.houseId, v.owner)
+                v.zone = getHouseZone(v.houseId)
+                if not v.displayName or v.displayName == k then
+                    v.displayName = houseName
+                end
+                rekeyed[newKey] = v
             end
-            rekeyed[newKey] = v
+            return rekeyed
         end
-        return rekeyed
-    end
-    CH.sv.account = migrateTable(CH.sv.account)
-    for _, charEntries in pairs(CH.sv.characters) do
-        if charEntries.primary then
-            charEntries.primary.zone = getHouseZone(charEntries.primary.houseId)
+        CH.sv.account = migrateTable(CH.sv.account)
+        for _, charEntries in pairs(CH.sv.characters) do
+            if charEntries.primary then
+                charEntries.primary.zone = getHouseZone(charEntries.primary.houseId)
+            end
+            if charEntries.named then
+                charEntries.named = migrateTable(charEntries.named)
+            end
         end
-        if charEntries.named then
-            charEntries.named = migrateTable(charEntries.named)
-        end
+        CH.sv.migrated = true
     end
 
     -- owner filter combo (structure defined in XML)
