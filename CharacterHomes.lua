@@ -352,6 +352,17 @@ local function addTooltip(ctrl, text)
     end)
 end
 
+-- re-show the tooltip of whichever of these controls the mouse is over (after its text changed)
+local function refreshHoverTooltip(...)
+    local over = WINDOW_MANAGER:GetMouseOverControl()
+    for _, ctrl in ipairs({ ... }) do
+        if over == ctrl and not ctrl:IsHidden() then
+            ctrl:GetHandler("OnMouseEnter")(ctrl)
+            return
+        end
+    end
+end
+
 local ownedHouseCache = nil
 
 getOwnedHouses = function()
@@ -461,8 +472,9 @@ local function initRow(row)
     row:SetHandler("OnMouseEnter", function() bg:SetCenterColor(1, 1, 1, 0.06) end)
     row:SetHandler("OnMouseExit",  function() bg:SetCenterColor(0, 0, 0, 0) end)
     row:GetNamedChild("NameBg"):SetCenterColor(0, 0, 0, 0.7)
-    addTooltip(row:GetNamedChild("EditButton"), "Edit label or change house")
-    addTooltip(row:GetNamedChild("DeleteButton"), "Remove from list")
+    -- edit/delete button tooltips are set by addRow's edit mode switch
+    -- keep our own (already sorted) order so SelectItemByIndex picks the right house
+    ZO_ComboBox_ObjectFromContainer(row:GetNamedChild("HouseCombo")):SetSortsItems(false)
 end
 
 local function addHeader(text, yOff)
@@ -566,10 +578,13 @@ local function addRow(typeLabel, aliasName, entry, yOff, onDelete)
 
         editBtn:SetNormalTexture(SAVE_ICON)
         editBtn:SetMouseOverTexture(SAVE_ICON_MO)
+        addTooltip(editBtn, "Save")
         del:SetHandler("OnClicked", function() exitEditMode(false) end)
+        addTooltip(del, "Cancel")
+        refreshHoverTooltip(editBtn, del)
     end
 
-    exitEditMode = function(doSave)
+    exitEditMode = function(doSave, isReset)
         dnEdit:LoseFocus()
         ico:SetHidden(false)
         aliasLbl:SetHidden(false)
@@ -578,7 +593,10 @@ local function addRow(typeLabel, aliasName, entry, yOff, onDelete)
         houseComboCtrl:SetHidden(true)
         editBtn:SetNormalTexture(EDIT_ICON)
         editBtn:SetMouseOverTexture(EDIT_ICON_MO)
+        addTooltip(editBtn, "Edit label or change house")
         del:SetHandler("OnClicked", onDelete)
+        addTooltip(del, "Remove from list")
+        if not isReset then refreshHoverTooltip(editBtn, del) end
         if doSave then
             local newName = zo_strtrim(dnEdit:GetText() or "")
             if newName ~= "" then entry.displayName = newName end
@@ -599,8 +617,9 @@ local function addRow(typeLabel, aliasName, entry, yOff, onDelete)
         end
     end
 
-    dnEdit:SetHandler("OnEnterPressed", function() exitEditMode(true) end)
-    dnEdit:SetHandler("OnEscapePressed", function() exitEditMode(false) end)
+    -- ESO's EditBox events are OnEnter/OnEscape (OnEnterPressed doesn't exist)
+    dnEdit:SetHandler("OnEnter", function() exitEditMode(true) end)
+    dnEdit:SetHandler("OnEscape", function() exitEditMode(false) end)
 
     editBtn:SetHandler("OnClicked", function()
         if dnBg:IsHidden() then enterEditMode()
@@ -608,7 +627,7 @@ local function addRow(typeLabel, aliasName, entry, yOff, onDelete)
     end)
 
     -- start in view mode; a reused row may have been left in edit mode
-    exitEditMode(false)
+    exitEditMode(false, true)
 
     return yOff + ROW_H + 2
 end
@@ -1160,6 +1179,7 @@ local function onAddonLoaded(_, name)
 
     -- owner filter combo (structure defined in XML)
     local ownerCb = ZO_ComboBox_ObjectFromContainer(CharacterHomesDialogOwnerFilterCombo)
+    ownerCb:SetSortsItems(false)  -- the saved filter is an index, so keep this order
     for i, opt in ipairs({ "All account homes", "My homes", "Friends' homes" }) do
         local v = i - 1
         ownerCb:AddItem(ownerCb:CreateItemEntry(opt, function()

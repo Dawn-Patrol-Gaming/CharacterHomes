@@ -9,75 +9,11 @@ To do.
 
 ## To do
 
-**Before starting: log out fully and back in** (not just `/reloadui`). The manifest changed
-(`AddOnVersion`, `APIVersion`, licence lines), and the game only reads it at login.
-
-### Right after logging in
-
-| # | Do | Expect |
-|---|---|---|
-| LD1 | Add-ons list at the character screen | Character Homes listed and enabled, with no "out of date" warning |
-| LD2 | Log in and watch chat | No Lua error and no Character Homes chat line. (A line only appears if another addon already uses one of our commands, see CW1) |
-| SC1 | `/setglobalhome` with no name | `Usage: /setglobalhome <name>  (account-wide alias)` and a second line about `/setmyhome` |
-| SC2 | `/setmyhome` while not in a house | `You must be inside a house.` |
-| SC3 | `/delhome` with no name | `Usage: /delhome <name>` |
-| SC4 | `/delmyhome` with no name | `Usage: /delmyhome <name>  (or 'primary')` |
-| SC5 | `/homes` | The window opens with every home you had before |
-
-### In the homes window (`/homes`)
-
-| # | Do | Expect |
-|---|---|---|
-| LS1 | Look over the list | Columns line up on every row: icon, @owner (friends' homes only), label, house name, then the edit and delete buttons at the right edge |
-| LS2 | Look at the icons | Your primary residence has the home icon; every other row has the wayshrine |
-| LS3 | Look at the colours | Section headers gold, @owner blue, label white, house name grey |
-| LS4 | Hover the teleport icon on one of your own homes, then on a friend's | Own: `Teleport to <label>` and `Right-click for outside`. Friend's: `Teleport to <label>` and `via @owner` |
-| LS5 | Hover a house name | It turns white, with a tooltip of the zone and `Click to show on map`. Moving off turns it grey again |
-| LS6 | Click a house name | The map opens on that house's zone, centred on the house if it has a map marker |
-| LS7 | Search for `zzzz` | Grey notes: `No character homes match the filter.` and `No account homes match the filter.` |
-| LS8 | Clear the search and scroll to the bottom | The last row is fully visible, with no large blank area under it |
-| PL1 | Type a long search one letter at a time, then delete it letter by letter | The list updates on every keystroke, with no leftover, doubled or blank rows |
-| PL2 | Owner filter: All account homes, then My homes, then Friends' homes | Account homes shows all, only yours (no @owner), then only friends' |
-| PL3 | Owner filter on Friends' homes, `/reloadui`, `/homes` | Still on Friends' homes. Set it back to All account homes |
-| PL4 | Close and reopen the window five times | Same list each time, nothing doubled |
-| PL5 | After PL1–PL4, run `/script local n=0 while _G["CharacterHomesRow"..(n+1)] do n=n+1 end d(n)`. Type 20 more letters in the search and clear it, then run it again | Both numbers are the same, and no more than the most rows you've had on screen at once. A number that grows means rows aren't being reused |
-| PL6 | Owned bar: Account wide, any house, Name `Test`, ✓. Hover the new `Test` row and click its X without moving the mouse | `Test` is removed, and the row that moves under the mouse isn't left highlighted |
-| PL7 | Click the search box, then hover a house name so it turns white, and type a letter without moving the mouse | After the list redraws, no house name is stuck white and no tooltip is left showing |
-| ED1 | Edit button on one of your own homes | Label editor with the current label, a house dropdown on the right, and the buttons change to ✓ and X |
-| ED2 | Edit button on a friend's home | Label editor only, no house dropdown |
-| ED3 | Edit a label, change it, press Enter | Saved, and the row shows the new label |
-| ED4 | Edit a label, change it, click ✓ | Saved |
-| ED5 | Edit a label, change it, press Escape | Label unchanged. Say whether the whole window closes too |
-| ED6 | Edit a label, change it, click X | Label unchanged, and the home is **not** deleted |
-| ED7 | Edit one of your own homes, pick another house in the dropdown, save | The house name changes, and hovering it shows the new house's zone. Change it back afterwards |
-| ED8 | Start editing a row, click the search box and type a letter | The row goes back to normal. Then press Enter to open chat and type: the text goes into chat |
-| OB1 | Hover the Owned bar's teleport button (bottom right) | `Teleport to the selected house` and `Right-click for outside` |
-
-### Teleports (each one moves you, so do these last, from somewhere you can teleport)
-
-| # | Do | Expect |
-|---|---|---|
-| TP1 | Left-click the icon on one of your own homes | Window closes, `Heading inside <label> (<house>)...`, and you arrive inside |
-| TP2 | Right-click the icon on one of your own homes → Teleport Outside | Menu with Teleport Inside and Teleport Outside. `Heading outside ...`, and you arrive outside the house |
-| TP3 | Left-click the icon on a friend's home | You arrive inside the friend's house |
-| TP4 | Right-click the icon on a friend's home | Nothing happens, no menu |
-| OB2 | Owned bar: pick a house, left-click the teleport button | `Heading inside <house>...`, and you arrive inside |
-| OB3 | Owned bar: right-click the teleport button → Teleport Inside | You arrive inside |
-| OB4 | Owned bar: right-click the teleport button → Teleport Outside | `Heading outside <house>...`, and you arrive outside the house |
-| SC6 | `/gohome` | You arrive inside your primary residence |
-| SC7 | `/gohome outside` | You arrive outside your primary residence |
-| SC8 | `/gohome <part of a label>` | You arrive inside that home |
-
-### After logging out
-
-| # | Do | Expect |
-|---|---|---|
-| SV1 | Open `SavedVariables\CharacterHomes.lua` | Under `["NA Megaserver"]` (or your server), `["migrated"] = true` and `["ownerFilter"]` are there, and your homes look as before |
-
 ### Whenever it happens
 
 | # | Do | Expect |
 |---|---|---|
+| SV2 | Next time you play on EU: log in, `/homes` (homes as before), log out, then open `SavedVariables\CharacterHomes.lua` | Under `["EU Megaserver"]`, `["migrated"] = true` and `["ownerFilter"] = 0` are now there, and the EU homes are unchanged |
 | OB5 | Owned bar teleport somewhere you can't teleport from (a dungeon, Cyrodiil) | `Cannot teleport from your current location.` and you stay put |
 | CW1 | Optional. Another addon uses one of `/setglobalhome /setmyhome /resethome /delhome /delmyhome /gohome /homes` | After login, one chat line: `Already used by another addon, not registered: <commands>` |
 | LS9 | Optional. No account homes at all | The note reads `No account homes -- use /setglobalhome <name> inside a house.` |
@@ -99,7 +35,44 @@ What changed:
 - The manifest has `AddOnVersion: 140`, `APIVersion: 101051 101052` and the ZOS licence lines.
 - The "No account homes" note now names `/setglobalhome` instead of `/sethome`.
 
-Nothing passed yet.
+Passed:
+- LD1: listed and enabled at the character screen, with no "out of date" warning.
+- LD2: no Lua error and no Character Homes chat line at login.
+- SC1–SC4: `/setglobalhome`, `/delhome` and `/delmyhome` with no name show their usage lines, and `/setmyhome` outside a house says `You must be inside a house.`
+- SC5: `/homes` opens the window with every existing home.
+- LS1–LS3: columns line up on every row, the primary residence has the home icon and the rest the wayshrine, and the colours are right.
+- LS4: teleport icon tooltips are right for your own homes and friends' homes.
+- LS5–LS6: hovering a house name highlights it with the zone tooltip, and clicking it opens the map.
+- LS7: searching `zzzz` shows both "no match" notes.
+- LS8: the last row is fully visible at the bottom of the list, with no blank area under it.
+- PL1: the list updates on every keystroke while typing and deleting a search, with no leftover, doubled or blank rows.
+- PL2: each Owner filter option shows the right homes.
+- PL4: closing and reopening five times shows the same list, with nothing doubled.
+- PL3 (after the fix below): the window reopens on the saved owner filter.
+- PL5: the row count stays the same after more searching, so rows are reused.
+- PL6: deleting a row under the mouse leaves no stuck highlight.
+- PL7: no house name stuck white and no leftover tooltip after a redraw.
+- ED1: the label editor opens with the row's own house already selected in the dropdown.
+- ED2: friends' homes get the label editor only.
+- ED4: clicking ✓ saves the label.
+- ED3 (after the fix below): Enter saves the label.
+- ED5: Escape cancels the edit and leaves the window open, and a second Escape closes the window.
+- ED6: clicking X in edit mode cancels without deleting. But the X's tooltip still said `Remove from list`, which makes it look like it deletes (fixed, see below).
+- ED7: changing a row's house saves, and the new zone shows on hover.
+- ED8: clicking the search box and typing takes the row out of edit mode. (Enter not opening chat while the window is open is older behaviour, see Results worth keeping.)
+- ED9: the ✓ and X tooltips read `Save` and `Cancel` in edit mode and switch straight away when clicked.
+- OB1: the Owned bar teleport button's tooltip mentions right-click for outside.
+- TP1–TP2: your own homes teleport inside on left-click, and right-click offers Inside/Outside, with outside working.
+- TP3–TP4: friends' homes teleport inside on left-click, and right-click does nothing.
+- OB2–OB4: the Owned bar teleport button goes inside on left-click, and its right-click Inside and Outside both work.
+- SC6–SC8: `/gohome`, `/gohome outside` and `/gohome <part of a label>` all arrive where expected.
+- SV1: the NA Megaserver save has `["migrated"] = true` and `["ownerFilter"] = 0`, no leftover `["Default"]` section, and all homes. EU doesn't have the new keys yet because it hasn't been played since (SV2).
+
+Failed, then fixed:
+- ED6 tooltip: in edit mode the ✓ and X buttons kept their normal tooltips (`Edit label or change house`, `Remove from list`). They now say `Save` and `Cancel` while editing, and switch straight away if the mouse is already on the button (checked in ED9).
+- ED3: Enter in the label editor did nothing. The addon set `OnEnterPressed` and `OnEscapePressed` handlers, but ESO's edit boxes fire `OnEnter` and `OnEscape` (as in ESO's own `ZO_DefaultEdit` template), so neither ever ran. This was there before today's changes. Both now use the right names (Escape is checked in ED5).
+- PL3: with Friends' homes saved, the window reopened on My homes. The dropdown was sorting its options alphabetically (All, Friends', My), so restoring the saved choice by its position picked the wrong one. That dropdown now keeps its own order. The house dropdown in each row's editor had the same risk, since it also picks by position, so it keeps its own order too (checked in ED1).
 
 ## Results worth keeping
+- **Enter doesn't open chat while the homes window is open.** The window has been `keyboardEnabled` since 1.4 so it can close on Escape, which means it takes every key while open, and `CH.OnKeyDown` only acts on Escape. Clicking into chat still works. Not changed so far; if wanted, `CH.OnKeyDown` could open chat on Enter.
 - **Outside teleport only works for your own homes.** `JumpToSpecificHouse(owner, houseId)` has no outside option; only `RequestJumpToHouse(houseId, true)` does, and that's for houses you own (same as BeamMeUp). Friends' homes have no Inside/Outside menu on purpose.
