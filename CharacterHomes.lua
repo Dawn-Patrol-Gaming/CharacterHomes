@@ -16,7 +16,8 @@ local ROW_H          = 44
 --   account    = { [alias] = { houseId, owner, displayName, zone } },
 --   characters = { [charName] = { primary = {...} or nil, named = { [alias] = {...} } } }
 -- }
--- entry fields: houseId (number), owner (string|nil), displayName (string), zone (string|nil)
+-- entry fields: houseId (number), owner (string|nil), displayName (string), zone (string|nil),
+--               exterior (bool; default teleport destination, false = inside)
 
 -- Forward declarations
 local populateDialog
@@ -149,6 +150,24 @@ local function jumpToExterior(entry)
     end
 end
 
+-- "Label (Official Name)", or just one name when they're the same
+local function destLabel(entry)
+    local official = getHouseName(entry.houseId)
+    local label    = entry.displayName
+    if not label or label == "" or string.lower(label) == string.lower(official) then
+        return "|cffffff" .. official .. "|r"
+    end
+    return "|cffffff" .. label .. "|r (" .. official .. ")"
+end
+
+-- a saved entry for one of your own houses, preferring character entries over account ones
+local function findSavedOwnEntry(houseId)
+    local cd = charData()
+    if cd.primary and cd.primary.houseId == houseId and not cd.primary.owner then return cd.primary end
+    for _, e in pairs(cd.named)      do if e.houseId == houseId and not e.owner then return e end end
+    for _, e in pairs(CH.sv.account) do if e.houseId == houseId and not e.owner then return e end end
+end
+
 -- Slash Commands
 
 function CH.SlashSetHome(args)
@@ -259,22 +278,22 @@ end
 
 function CH.SlashHome(args)
     local query    = args and zo_strtrim(args) or ""
-    local exterior = false
+    local override = nil  -- nil = use the entry's saved default
 
-    -- "/gohome outside" or "/gohome outside <name>"
-    local stripped = query:match("^outside%s+(.*)")
-    if stripped then
-        exterior = true
-        query    = zo_strtrim(stripped)
-    elseif string.lower(query) == "outside" then
-        exterior = true
-        query    = ""
+    -- "/gohome inside|outside [name]" overrides the entry's saved default
+    local first, rest = query:match("^(%S+)%s*(.*)$")
+    if first then
+        local lf = string.lower(first)
+        if lf == "inside" or lf == "outside" then
+            override = (lf == "outside")
+            query    = zo_strtrim(rest)
+        end
     end
 
     local function go(entry)
-        local official = getHouseName(entry.houseId)
-        local dest     = exterior and "outside" or "inside"
-        announce("Heading %s |cffffff%s|r (%s)...", dest, entry.displayName or official, official)
+        local exterior = override
+        if exterior == nil then exterior = entry.exterior == true end
+        announce("Heading %s %s...", exterior and "outside" or "inside", destLabel(entry))
         if exterior then jumpToExterior(entry) else jumpToInterior(entry) end
     end
 
@@ -295,7 +314,8 @@ function CH.SlashHome(args)
         local found = {}
         local function check(entry)
             local dn = string.lower(entry.displayName or "")
-            if dn ~= "" and dn:find(lq, 1, true) then
+            local hn = string.lower(getHouseName(entry.houseId) or "")
+            if (dn ~= "" and dn:find(lq, 1, true)) or (hn ~= "" and hn:find(lq, 1, true)) then
                 table.insert(found, { label = entry.displayName, entry = entry })
             end
         end
@@ -310,7 +330,9 @@ function CH.SlashHome(args)
         local found = {}
         for _, h in ipairs(getOwnedHouses()) do
             if string.lower(h.name):find(lq, 1, true) then
-                table.insert(found, { label = h.name, entry = { houseId = h.houseId } })
+                local saved = findSavedOwnEntry(h.houseId)
+                table.insert(found, { label = saved and saved.displayName or h.name,
+                                      entry = saved or { houseId = h.houseId } })
             end
         end
         return found
@@ -475,6 +497,10 @@ local function initRow(row)
     -- edit/delete button tooltips are set by addRow's edit mode switch
     -- keep our own (already sorted) order so SelectItemByIndex picks the right house
     ZO_ComboBox_ObjectFromContainer(row:GetNamedChild("HouseCombo")):SetSortsItems(false)
+    -- Inside/Outside items are filled per use, since their callbacks write to that row's entry
+    local portCtrl = row:GetNamedChild("PortCombo")
+    ZO_ComboBox_ObjectFromContainer(portCtrl):SetSortsItems(false)
+    addTooltip(portCtrl, "Default teleport destination\n|c888888Override with /gohome inside or /gohome outside <name>|r")
 end
 
 local function addHeader(text, yOff)
@@ -497,14 +523,13 @@ local function addRow(typeLabel, aliasName, entry, yOff, onDelete)
     ico:SetMouseOverTexture(teleIconMO)
     local function doTeleport(exterior)
         CH.HideDialog()
-        local official = getHouseName(entry.houseId)
-        announce("Heading %s |cffffff%s|r (%s)...", exterior and "outside" or "inside", entry.displayName or official, official)
+        announce("Heading %s %s...", exterior and "outside" or "inside", destLabel(entry))
         if exterior then jumpToExterior(entry) else jumpToInterior(entry) end
     end
 
     ico:SetHandler("OnMouseUp", function(self, button)
         if button == MOUSE_BUTTON_INDEX_LEFT then
-            doTeleport(false)
+            doTeleport(isOwned and entry.exterior == true)
         elseif button == MOUSE_BUTTON_INDEX_RIGHT and isOwned then  -- friend houses can't be entered from outside
             ClearMenu()
             AddMenuItem("Teleport Inside",  function() doTeleport(false) end)
@@ -513,7 +538,7 @@ local function addRow(typeLabel, aliasName, entry, yOff, onDelete)
         end
     end)
     local officialName = getHouseName(entry.houseId) or ("House #" .. tostring(entry.houseId or 0))
-    local teleLabel = isOwned and ("Teleport to " .. (entry.displayName or officialName) .. "\n|c666666Right-click for outside|r")
+    local teleLabel = isOwned and ("Teleport to " .. (entry.displayName or officialName) .. "\n|c666666Right-click to choose inside or outside|r")
                                or ("Teleport to " .. (entry.displayName or officialName) .. "\n|c888888via " .. entry.owner .. "|r")
     addTooltip(ico, teleLabel)
 
@@ -523,6 +548,19 @@ local function addRow(typeLabel, aliasName, entry, yOff, onDelete)
     -- col3: user's arbitrary display label (editable)
     local aliasLbl = row:GetNamedChild("Alias")
     aliasLbl:SetText(entry.displayName or "")
+
+    -- port default column: Inside/Outside dropdown (own homes); friends' houses are inside-only
+    local portCtrl = row:GetNamedChild("PortCombo")
+    local portLbl  = row:GetNamedChild("PortLabel")
+    portCtrl:SetHidden(not isOwned)
+    portLbl:SetHidden(isOwned)
+    if isOwned then
+        local portCb = ZO_ComboBox_ObjectFromContainer(portCtrl)
+        portCb:ClearItems()
+        portCb:AddItem(portCb:CreateItemEntry("Inside",  function() entry.exterior = false end))
+        portCb:AddItem(portCb:CreateItemEntry("Outside", function() entry.exterior = true  end))
+        portCb:SelectItemByIndex(entry.exterior and 2 or 1, true)
+    end
 
     -- col4: official ESO house name derived from houseId (not editable as text; changed via combo)
     local houseLbl = row:GetNamedChild("House")
@@ -1175,6 +1213,14 @@ local function onAddonLoaded(_, name)
             end
         end
         CH.sv.migrated = true
+    end
+
+    -- entries saved before the Inside/Outside default existed teleport inside
+    local function defaultInside(e) if e and e.exterior == nil then e.exterior = false end end
+    for _, e in pairs(CH.sv.account) do defaultInside(e) end
+    for _, cd in pairs(CH.sv.characters) do
+        defaultInside(cd.primary)
+        for _, e in pairs(cd.named or {}) do defaultInside(e) end
     end
 
     -- owner filter combo (structure defined in XML)
