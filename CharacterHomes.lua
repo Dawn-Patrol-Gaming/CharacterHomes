@@ -13,9 +13,11 @@ local ROW_H          = 44
 
 -- Single account-wide SavedVars, keyed per megaserver.  Structure:
 -- CharacterHomesSavedVars[GetWorldName()]["@account"]["$AccountWide"] = {
---   account    = { [alias] = { houseId, owner, displayName, zone } },
---   characters = { [charName] = { primary = {...} or nil, named = { [alias] = {...} } } }
+--   account    = { [entryKey] = { houseId, owner, displayName, zone, exterior } },
+--   characters = { [charName] = { primary = {...} or nil, named = { [entryKey] = {...} } } }
 -- }
+-- entryKey = makeEntryKey(houseId, owner): the official house name for your own houses,
+--            "@Owner_" .. house name for friends' (renaming only changes displayName)
 -- entry fields: houseId (number), owner (string|nil), displayName (string), zone (string|nil),
 --               exterior (bool; default teleport destination, false = inside)
 
@@ -143,7 +145,7 @@ end
 
 local function jumpToExterior(entry)
     if entry.owner and entry.owner ~= "" then
-        msg("Teleporting outside isn't available for friends' houses — going inside instead.")
+        msg("Teleporting outside isn't available for friends' houses, going inside instead.")
         JumpToSpecificHouse(entry.owner, entry.houseId)
     else
         RequestJumpToHouse(entry.houseId, true)
@@ -228,7 +230,7 @@ function CH.SlashDelHome(args)
     if #matches == 0 then
         msg("No account home matching '|cffffff%s|r'.", name)
     elseif #matches > 1 then
-        msg("'|cffffff%s|r' matches %d homes — be more specific:", name, #matches)
+        msg("'|cffffff%s|r' matches %d homes, be more specific:", name, #matches)
         for _, m in ipairs(matches) do
             msg("  |cffffff%s|r  (%s)", m.entry.displayName or m.key, m.key)
         end
@@ -264,7 +266,7 @@ function CH.SlashDelMyHome(args)
     if #matches == 0 then
         msg("No character home matching '|cffffff%s|r'.", name)
     elseif #matches > 1 then
-        msg("'|cffffff%s|r' matches %d homes — be more specific:", name, #matches)
+        msg("'|cffffff%s|r' matches %d homes, be more specific:", name, #matches)
         for _, m in ipairs(matches) do
             msg("  |cffffff%s|r  (%s)", m.entry.displayName or m.key, m.key)
         end
@@ -347,7 +349,7 @@ function CH.SlashHome(args)
         go(matches[1].entry)
     else
         table.sort(matches, function(a, b) return (a.label or "") < (b.label or "") end)
-        msg("'|cffffff%s|r' matches %d homes — be more specific:", query, #matches)
+        msg("'|cffffff%s|r' matches %d homes, be more specific:", query, #matches)
         for _, m in ipairs(matches) do
             msg("  |cffffff%s|r", m.label or "")
         end
@@ -822,7 +824,7 @@ local function buildFriendHousingBar()
     local selectedFriend  = nil
     local selectedHouseId = nil
 
-    -- Friend dropdown (x=78, w=200) — anchor to dialog TOPLEFT for reliability
+    -- Friend dropdown (x=78, w=200): anchor to dialog TOPLEFT for reliability
     local friendComboCtrl = WINDOW_MANAGER:CreateControlFromVirtual("CHFHFriendCombo", dlg, "ZO_ComboBox")
     friendComboCtrl:SetAnchor(LEFT, ref, LEFT, 78, 0)
     friendComboCtrl:SetDimensions(200, 28)
@@ -905,7 +907,7 @@ local function buildFriendHousingBar()
         friendCb:SelectItemByIndex(firstSelectableIdx)
     end
 
-    -- Type dropdown — anchor RIGHT of friend combo, w=200 to match add bar type combo
+    -- Type dropdown: anchor RIGHT of friend combo, w=200 to match add bar type combo
     local fhTypeComboCtrl = WINDOW_MANAGER:CreateControlFromVirtual("CHFHTypeCombo", dlg, "ZO_ComboBox")
     fhTypeComboCtrl:SetAnchor(LEFT, friendComboCtrl, RIGHT, 8, 0)
     fhTypeComboCtrl:SetDimensions(200, 28)
@@ -1052,7 +1054,7 @@ local function buildAddBar()
     local addBtn = CharacterHomesDialogSetHomeButton
     addBtn:SetHandler("OnClicked", function()
         if not selectedHouseInfo then
-            msg("No owned homes found — you must own at least one home.")
+            msg("No owned homes found: you must own at least one home.")
             return
         end
         local labelText   = zo_strtrim(addLabelEdit:GetText() or "")

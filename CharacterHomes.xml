@@ -146,7 +146,7 @@
              friend housing bar  (60px zone: divider at -120, controls centred at -76)
              X layout (1180px window):
                x=78   Friend combo  w=200  → ends  278   (label right=74)
-               x=286  Type   combo  w=160  → ends  446   (no label — gap too tight)
+               x=286  Type   combo  w=160  → ends  446   (no label, gap too tight)
                x=554  House  combo  w=270  → ends  824   (label right=550)
                x=880  Name editbox  w=216  → ends 1096   (label RIGHT←LEFT -4)
                BOTTOMRIGHT -44  Save (checkmark) 28×28  → left 1108
@@ -202,7 +202,7 @@
 
         <!-- ═══════════════════════════════════════════════════════════════════
              Add bar  (60px zone: divider at -60, controls centred at -30)
-             X layout (1180px window) — mirrors friend housing bar column positions:
+             X layout (1180px window), mirrors friend housing bar column positions:
                x=78   Type  combo  w=200  → ends  278   (label right=74, "Type:")
                x=554  House combo  w=270  → ends  824   (label right=550, "House:")
                x=880  Name editbox w=216  → ends 1096   (label RIGHT←LEFT -4, "Name:")
