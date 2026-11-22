@@ -22,6 +22,70 @@ To do.
 
 What changed and what passed, newest first.
 
+### /sethome alongside /setmyhome (2026-11-22)
+
+What changed:
+- `/sethome` now works the same as `/setmyhome`, the same way `/home` works alongside `/gohome`: it's claimed after login only if no other addon (such as EHT) has it, and `/setmyhome` always works.
+- `Instructions.txt` explains both pairs and when each one works, and lists the commands as `/home` and `/sethome`.
+
+Reviewed before deploying: syntax and globals OK.
+
+Passed:
+- SH1: `/sethome Test` saves a named home for the character.
+- SH2: `/sethome` with no name sets the primary residence, and `/home` goes there.
+- SH3: `/setmyhome` still works. Saving the same house again with a different label renames the existing named home instead of adding a second one (see Results worth keeping).
+- SH4: `/sethome` outside a house says `You must be inside a house.`
+- SH5: with EHT on, `/sethome` stays EHT's, with no Character Homes chat line, and `/setmyhome` still works.
+- Multi-word labels (`/sethome The Arena`, `/setglobalhome The Arena`) save and can be teleported to by part of the label. One attempt seemed to do nothing, but it couldn't be repeated; ESO passes the whole label through, and no installed addon intercepts slash commands.
+
+### Inside/Outside dropdown only in edit mode (2026-11-22)
+
+What changed:
+- The list shows each home's teleport default as grey `Inside`/`Outside` text. The dropdown only appears when you edit one of your own homes, and the choice is saved with ✓ or Enter like the label and house, and dropped with X or Escape. Before, the dropdown was always showing and saved as soon as you picked.
+- The text has a tooltip: for your own homes it says to edit the row to change it, for friends' homes that they can only be entered inside.
+- The edit button's tooltip says `Edit label, house or Inside/Outside` for your own homes and `Edit label` for friends'.
+
+Reviewed before deploying: syntax and globals OK, the XML parses.
+
+Passed:
+- DV1: no dropdowns in the list; each row shows its setting as grey text, matching what was set before.
+- DV2: the text's tooltips are right for your own homes and friends' homes.
+- DF4: in edit mode the Inside/Outside dropdown starts on the home's setting, and the label editor and both dropdowns don't overlap.
+- DV4: changing Inside/Outside and clicking ✓ saves it and the text updates.
+- DV9 (after the fix below): after picking from either dropdown the cursor is back in the label box, and clicking the box gives it focus.
+- DV3: the edit button tooltip is `Edit label, house or Inside/Outside` for your own homes and `Edit label` for friends'.
+- DV5: Enter saves the Inside/Outside change.
+- DV6: X and Escape both drop the change, and the dropdown starts on the old setting next time.
+- DV7: friends' homes get no Inside/Outside dropdown in edit mode.
+- DV8: typing in the search while editing ends edit mode with no dropdown left showing, and the setting is unchanged.
+- DF8: homes set back to Inside stay Inside after `/reloadui`.
+
+Failed, then fixed:
+- DV9: after picking from a dropdown in edit mode, clicking the label box never put the cursor back in it. The row's label box was a plain edit box that wasn't set to take mouse clicks (ESO's own `ZO_DefaultEdit` sets `mouseEnabled` and takes focus on mouse down); it only worked at first because entering edit mode gives it focus directly. The house dropdown had the same problem. The box now takes focus when clicked, and picking from either dropdown hands focus back to it, so Enter and Escape keep working.
+
+### Per-home Inside/Outside teleport default (2026-11-22, commit `44ac90f`)
+
+What changed:
+- Each of your own saved homes has an Inside/Outside dropdown in the list, which sets where a left-click on its teleport icon and `/gohome` take you. Friends' homes show a fixed `Inside`. Existing entries default to Inside.
+- `/gohome inside <name>` and `/gohome outside <name>` override the default for one jump.
+- `/gohome <name>` also matches saved homes by official house name, and when it falls back to a house you own that's saved, it uses that saved entry's label and default.
+- The teleport message shows `Label (House)` only when the two differ.
+
+Reviewed before deploying: syntax and globals OK, the XML parses, and ESO's `ZO_ComboBox` template has no mouse-over handlers of its own, so adding the tooltip doesn't replace any. Passed:
+- DF1: own homes have the Inside/Outside dropdown (all Inside to start), friends' homes a grey `Inside`, with nothing cut off or overlapping.
+- DF2: the dropdown's tooltip explains the default and the `/gohome inside|outside` override.
+- DF3: the teleport icon tooltip says `Right-click to choose inside or outside`.
+- DF5: an Outside setting survives searching, redraws and reopening, and the other rows stay Inside.
+- DF6: the setting survives `/reloadui`.
+- DF7: reused rows always show their own home's setting.
+- DT1–DT3: left-click follows each home's setting (Outside goes outside, Inside goes inside), and right-click → Teleport Inside still overrides it.
+- DT4–DT5: `/gohome <label>` follows the setting, and `/gohome inside <label>` overrides it.
+- DT6: with the primary residence set to Outside, `/gohome` goes outside and `/gohome inside` goes inside.
+- DT7: `/gohome outside <label>` goes outside for a home set to Inside.
+- DT8: `/gohome` with part of a saved home's official house name finds that saved home, shows its label and uses its setting.
+- DT9: when a home's label is the same as its house name, the teleport message names it once.
+- DT10: friends' homes still teleport inside on left-click.
+
 ### Best-practice review and reused list rows (2026-11-21)
 
 What changed:
@@ -74,5 +138,6 @@ Failed, then fixed:
 - PL3: with Friends' homes saved, the window reopened on My homes. The dropdown was sorting its options alphabetically (All, Friends', My), so restoring the saved choice by its position picked the wrong one. That dropdown now keeps its own order. The house dropdown in each row's editor had the same risk, since it also picks by position, so it keeps its own order too (checked in ED1).
 
 ## Results worth keeping
+- **One named home per house, per character (and one account home per house and owner).** Named and account homes are stored by house (plus owner for friends' houses), so saving the same house again with `/sethome <label>`, `/setmyhome <label>` or `/setglobalhome <label>` just renames it. This is intended: it avoids duplicates. The primary residence is a separate slot, so the same house can be both your primary and a labelled named home.
 - **Enter doesn't open chat while the homes window is open.** The window has been `keyboardEnabled` since 1.4 so it can close on Escape, which means it takes every key while open, and `CH.OnKeyDown` only acts on Escape. Clicking into chat still works. Not changed so far; if wanted, `CH.OnKeyDown` could open chat on Enter.
 - **Outside teleport only works for your own homes.** `JumpToSpecificHouse(owner, houseId)` has no outside option; only `RequestJumpToHouse(houseId, true)` does, and that's for houses you own (same as BeamMeUp). Friends' homes have no Inside/Outside menu on purpose.

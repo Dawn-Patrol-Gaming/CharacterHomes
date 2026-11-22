@@ -497,7 +497,7 @@ local function initRow(row)
     -- edit/delete button tooltips are set by addRow's edit mode switch
     -- keep our own (already sorted) order so SelectItemByIndex picks the right house
     ZO_ComboBox_ObjectFromContainer(row:GetNamedChild("HouseCombo")):SetSortsItems(false)
-    -- Inside/Outside items are filled per use, since their callbacks write to that row's entry
+    -- Inside/Outside items are filled on each edit, since their callbacks belong to that use of the row
     local portCtrl = row:GetNamedChild("PortCombo")
     ZO_ComboBox_ObjectFromContainer(portCtrl):SetSortsItems(false)
     addTooltip(portCtrl, "Default teleport destination\n|c888888Override with /gohome inside or /gohome outside <name>|r")
@@ -549,18 +549,15 @@ local function addRow(typeLabel, aliasName, entry, yOff, onDelete)
     local aliasLbl = row:GetNamedChild("Alias")
     aliasLbl:SetText(entry.displayName or "")
 
-    -- port default column: Inside/Outside dropdown (own homes); friends' houses are inside-only
+    -- default teleport destination: plain text, replaced by an Inside/Outside dropdown in edit mode
+    -- (own homes only; friends' houses can only be entered inside)
     local portCtrl = row:GetNamedChild("PortCombo")
+    local portCb   = ZO_ComboBox_ObjectFromContainer(portCtrl)
     local portLbl  = row:GetNamedChild("PortLabel")
-    portCtrl:SetHidden(not isOwned)
-    portLbl:SetHidden(isOwned)
-    if isOwned then
-        local portCb = ZO_ComboBox_ObjectFromContainer(portCtrl)
-        portCb:ClearItems()
-        portCb:AddItem(portCb:CreateItemEntry("Inside",  function() entry.exterior = false end))
-        portCb:AddItem(portCb:CreateItemEntry("Outside", function() entry.exterior = true  end))
-        portCb:SelectItemByIndex(entry.exterior and 2 or 1, true)
-    end
+    local selectedExterior = entry.exterior == true
+    portLbl:SetText((isOwned and entry.exterior) and "Outside" or "Inside")
+    addTooltip(portLbl, isOwned and "Default teleport destination\n|c888888Edit the row to change it|r"
+                                 or "Friends' houses can only be entered inside")
 
     -- col4: official ESO house name derived from houseId (not editable as text; changed via combo)
     local houseLbl = row:GetNamedChild("House")
@@ -607,11 +604,21 @@ local function addRow(typeLabel, aliasName, entry, yOff, onDelete)
                 local houseId = h.houseId
                 houseCombo:AddItem(houseCombo:CreateItemEntry(h.name, function()
                     selectedHouseId = houseId
+                    dnEdit:TakeFocus()  -- the dropdown took focus; give it back so Enter/Escape still work
                 end))
                 if h.houseId == entry.houseId then selectIdx = i end
             end
             houseCombo:SelectItemByIndex(selectIdx)
             houseComboCtrl:SetHidden(false)
+
+            -- the choice is kept in selectedExterior and only saved with the rest of the edit
+            portCb:ClearItems()
+            portCb:AddItem(portCb:CreateItemEntry("Inside",  function() selectedExterior = false; dnEdit:TakeFocus() end))
+            portCb:AddItem(portCb:CreateItemEntry("Outside", function() selectedExterior = true;  dnEdit:TakeFocus() end))
+            selectedExterior = entry.exterior == true
+            portCb:SelectItemByIndex(selectedExterior and 2 or 1, true)
+            portLbl:SetHidden(true)
+            portCtrl:SetHidden(false)
         end
 
         editBtn:SetNormalTexture(SAVE_ICON)
@@ -629,9 +636,11 @@ local function addRow(typeLabel, aliasName, entry, yOff, onDelete)
         houseLbl:SetHidden(false)
         dnBg:SetHidden(true)
         houseComboCtrl:SetHidden(true)
+        portCtrl:SetHidden(true)
+        portLbl:SetHidden(false)
         editBtn:SetNormalTexture(EDIT_ICON)
         editBtn:SetMouseOverTexture(EDIT_ICON_MO)
-        addTooltip(editBtn, "Edit label or change house")
+        addTooltip(editBtn, isOwned and "Edit label, house or Inside/Outside" or "Edit label")
         del:SetHandler("OnClicked", onDelete)
         addTooltip(del, "Remove from list")
         if not isReset then refreshHoverTooltip(editBtn, del) end
@@ -639,6 +648,7 @@ local function addRow(typeLabel, aliasName, entry, yOff, onDelete)
             local newName = zo_strtrim(dnEdit:GetText() or "")
             if newName ~= "" then entry.displayName = newName end
             if isOwned then
+                entry.exterior = selectedExterior
                 if selectedHouseId ~= entry.houseId then
                     entry.houseId = selectedHouseId
                     entry.owner   = nil
@@ -1167,7 +1177,6 @@ local function onAddonLoaded(_, name)
             SLASH_COMMANDS[cmd] = fn
         end
     end
-    -- /sethome conflicts with EHT (which also registers /sethome); use /setglobalhome
     reg("/setglobalhome", function(a) CH.SlashSetHome(a)   end)
     reg("/setmyhome",     function(a) CH.SlashSetMyHome(a) end)
     reg("/resethome",     function()  CH.SlashResetHome()  end)
@@ -1176,11 +1185,16 @@ local function onAddonLoaded(_, name)
     reg("/gohome",        function(a) CH.SlashHome(a)      end)
     reg("/homes",         function()  CH.SlashHomes()      end)
 
-    -- /home belongs to EHT when it's enabled; claim it only if nothing else has once all addons are loaded
+    -- /home and /sethome are the natural names, but EHT uses both when it's enabled.
+    -- Claim each one only if nothing else has by the time all addons are loaded;
+    -- /gohome and /setmyhome always work either way.
     EVENT_MANAGER:RegisterForEvent("CharacterHomes_HomeCmd", EVENT_PLAYER_ACTIVATED, function()
         EVENT_MANAGER:UnregisterForEvent("CharacterHomes_HomeCmd", EVENT_PLAYER_ACTIVATED)
         if not SLASH_COMMANDS["/home"] then
             SLASH_COMMANDS["/home"] = function(a) CH.SlashHome(a) end
+        end
+        if not SLASH_COMMANDS["/sethome"] then
+            SLASH_COMMANDS["/sethome"] = function(a) CH.SlashSetMyHome(a) end
         end
         if #takenCmds > 0 then
             msg("Already used by another addon, not registered: %s", table.concat(takenCmds, " "))
